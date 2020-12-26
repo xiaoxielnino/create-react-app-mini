@@ -4,12 +4,22 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const spawn = require('cross-spawn');
 const semver = require('semver');
 const chalk = require('chalk')
 
 const argv = require('minimist')(process.argv.slice(2));
 
+/**
+ * Arguments:
+ *   --version - to print current version
+ *   --verbose - to print logs while init
+ *   --scripts-version <alternative package>
+ *     Example of valid values:
+ *     - a specific npm version: "0.22.0-rc1"
+ *     - a .tgz archive from any npm repo: "https://registry.npmjs.org/react-scripts/-/react-scripts-0.20.0.tgz"
+ *     - a package prepared with `npm pack`: "/Users/home/vjeux/create-react-app/react-scripts-0.22.0.tgz"
+ */
 const commands =  argv._;
 if(commands.length === 0) {
   console.error('Usage: create-react-app <project-name> [--verbose]');
@@ -66,11 +76,12 @@ function run(root, appName, version, verbose) {
     const scriptsPath = path.resolve(
       process.cwd(),
       'node_modules',
-      'create-react-app-scripts',
+      'react-scripts',
+      'scripts',
       'init.js'
     );
     const init = require(scriptsPath);
-    init(root, appName);
+    init(root, appName, verbose);
   });
 }
 

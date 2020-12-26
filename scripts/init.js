@@ -1,20 +1,23 @@
 const fs = require('fs');
+const path = require('path');
+const spawn = require('cross-spawn');
 
-module.exports = function (hostPath, appName) {
-  const selfPath = hostPath + '/node_modules/create-react-app-scripts';
+module.exports = function (hostPath, appName, verbose) {
+  const selfPath = path.join(hostPath + 'node_modules', 'react-scripts');
 
-  const hostPackage = require(hostPath + '/package.json');
-  const selfPackage = require(selfPath + '/package.json');
+  const hostPackage = require(path.join(hostPath, 'package.json'));
+  const selfPackage = require(path.join(selfPath, 'package.json'));
 
-  // copy over devDependencies
-  for(let key in selfPackage.devDependencies) {
-    hostPackage.dependencies[key] = selfPackage.devDependencies[key]
-  }
+  // copy over some of the devDependencies
+  hostPackage.dependencies = hostPackage.dependencies || {};
+  ['react', 'react-dom'].forEach(function (key) {
+    hostPackage.dependencies[key] = selfPackage.devDependencies[key];
+  })
 
   // setup the script rules
   hostPackage.scripts = {};
-  ['start', 'build'].forEach(function(command) {
-    hostPackage.scripts[command] = 'node node_modules/create-react-app-scripts/scripts/' + command + '.js';
+  ['start', 'build', 'eject'].forEach(function(command) {
+    hostPackage.scripts[command] = 'react-scripts ' + command ;
   })
 
   fs.writeFileSync(hostPath + '/package.json', JSON.stringify(hostPackage, null, 2));
