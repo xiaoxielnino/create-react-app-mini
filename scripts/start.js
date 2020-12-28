@@ -1,22 +1,22 @@
 process.env.NODE_ENV = 'development';
 
-const path = require('path');
-const webpack = require('webpack');
-const WebpackDevServer = require('webpack-dev-server');
-const config = require('../webpack.config.dev');
-const execSync = require('child_process').execSync;
-const open = require('open');
-const { existsSync } = require('fs');
+var path = require('path');
+var chalk = require('chalk');
+var webpack = require('webpack');
+var WebpackDevServer = require('webpack-dev-server');
+var config = require('../config/webpack.config.dev');
+var execSync = require('child_process').execSync;
+var opn = require('opn');
 
 // TODO: hide this behind a flag and eliminate dead code on eject.
 // This shouldn't be exposed to the user.
-let handleCompile;
-const isSmokeTest = process.argv.some( arg =>
+var handleCompile;
+var isSmokeTest = process.argv.some(arg =>
   arg.indexOf('--smoke-test') > -1
 );
-if(isSmokeTest) {
-  handleCompile = function(err, stats) {
-    if(err || stats.hasErrors() || stats.hasWarnings()) {
+if (isSmokeTest) {
+  handleCompile = function (err, stats) {
+    if (err || stats.hasErrors() || stats.hasWarnings()) {
       process.exit(1);
     } else {
       process.exit(0);
@@ -24,23 +24,25 @@ if(isSmokeTest) {
   };
 }
 
-const friendlySyntaxErrorLabel = 'Syntax error:';
+var friendlySyntaxErrorLabel = 'Syntax error:';
 
-function isLikelyASynctaxError(message) {
+function isLikelyASyntaxError(message) {
   return message.indexOf(friendlySyntaxErrorLabel) !== -1;
 }
 
-
-// This is a little hacky
+// This is a little hacky.
 // It would be easier if webpack provided a rich error object.
 
 function formatMessage(message) {
   return message
+    // Make some common errors shorter:
     .replace(
-      'Module build failed: SyntaError:',
+      // Babel syntax error
+      'Module build failed: SyntaxError:',
       friendlySyntaxErrorLabel
     )
     .replace(
+      // Webpack file not found error
       /Module not found: Error: Cannot resolve 'file' or 'directory'/,
       'Module not found:'
     )
@@ -51,33 +53,34 @@ function formatMessage(message) {
 }
 
 function clearConsole() {
-  process.stdout.write('\x1B[2J\x1B[0f')
+  process.stdout.write('\x1B[2J\x1B[0f');
 }
 
-const compiler = webpack(config. handleCompile);
+var compiler = webpack(config, handleCompile);
 compiler.plugin('invalid', function () {
   clearConsole();
   console.log('Compiling...');
-})
-compiler.plugin('done', function(stats) {
+});
+compiler.plugin('done', function (stats) {
   clearConsole();
-  const hasErrors = stats.hasErrors();
-  const hasWarnings = stats.hasWarnings();
-  if(!hasErrors && !hasWarnings) {
+  var hasErrors = stats.hasErrors();
+  var hasWarnings = stats.hasWarnings();
+  if (!hasErrors && !hasWarnings) {
     console.log(chalk.green('Compiled successfully!'));
     console.log();
     console.log('The app is running at http://localhost:3000/');
     console.log();
     return;
-  };
+  }
 
-  const json = stats.toJson();
-  const formattedErrors = json.errors.map(message =>
+  var json = stats.toJson();
+  var formattedErrors = json.errors.map(message =>
     'Error in ' + formatMessage(message)
   );
-  const formattedWarnings = json.warnings.map(message =>
+  var formattedWarnings = json.warnings.map(message =>
     'Warning in ' + formatMessage(message)
   );
+
   if (hasErrors) {
     console.log(chalk.red('Failed to compile.'));
     console.log();
@@ -107,36 +110,39 @@ compiler.plugin('done', function(stats) {
     console.log('Use ' + chalk.yellow('// eslint-disable-next-line') + ' to ignore the next line.');
     console.log('Use ' + chalk.yellow('/* eslint-disable */') + ' to ignore all warnings in a file.');
   }
-})
+});
 
 function openBrowser() {
-  if(process.platform === 'darwin') {
+  if (process.platform === 'darwin') {
     try {
-      // try out best to reuse existing tab
+      // Try our best to reuse existing tab
       // on OS X Google Chrome with AppleScript
-      existsSync('ps cax | grep "Google Chrome"');
+      execSync('ps cax | grep "Google Chrome"');
       execSync(
         'osascript ' +
         path.resolve(__dirname, './openChrome.applescript') +
         ' http://localhost:3000/'
       );
       return;
-    } catch(err) {
-      // ignore errors
+    } catch (err) {
+      // Ignore errors.
     }
   }
-  open('http://localhost:3000/');
+  // Fallback to opn
+  // (It will always open new tab)
+  opn('http://localhost:3000/');
 }
 
-new WebpackDevServer(webpack(config), {
+new WebpackDevServer(compiler, {
   historyApiFallback: true,
-  hot: true,
+  hot: true, // Note: only CSS is currently hot reloaded
   publicPath: config.output.publicPath,
   quiet: true
 }).listen(3000, 'localhost', function (err, result) {
   if (err) {
     return console.log(err);
   }
+
   clearConsole();
   console.log(chalk.cyan('Starting the development server...'));
   console.log();
