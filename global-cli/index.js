@@ -22,14 +22,14 @@ const argv = require('minimist')(process.argv.slice(2));
  */
 const commands =  argv._;
 if(commands.length === 0) {
+  if(argv.version) {
+    console.log('create-react-app version: ' + require('./package.json').version);
+    process.exit();
+  }
   console.error('Usage: create-react-app <project-name> [--verbose]');
   process.exit(1);
 }
-
-if(argv.v || argv.version) {
-  console.log('create-react-app: ' +  require('./package.json').version );
-  process.exit();
-}
+console.log('command---', commands, argv, argv.verbose,);
 
 createApp(commands[0], argv.verbose, argv['script-version']);
 
@@ -41,30 +41,48 @@ function createApp(name, verbose, version) {
   const root = path.resolve(name);
   const appName = path.basename(root);
 
-  console.log('This will walk you through creating a new React app in', root);
+  checkAppName(appName);
 
-  fs.mkdirSync(root);
+  if(!pathExistsSync(name)) {
+    fs.mkdirSync(root);
+  } else if(!isSafeToCreateProjectIn(root)) {
+    console.log(`The directory ${name} contains file(s) that could conflict. Aborting.`);
+  }
+
+  console.log(
+    'Creating a new React app in ' + root + '.'
+  );
+  console.log();
 
   const packageJson = {
     name: appName,
     version: '0.0.1',
     private: true,
   };
-  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(packageJson));
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify(packageJson, null, 2)
+  );
+  const originalDirectory = process.cwd();
   process.chdir(root);
 
-  console.log('Installing create-react-app-scripts package from npm...');
+  console.log('Installing packages. This might take a couple minutes.');
+  console.log('Installing react-scripts from npm...');
+  console.log();
 
-  run(root, appName, version, verbose)
+  run(root, appName, version, verbose, originalDirectory)
 }
 
-function run(root, appName, version, verbose) {
+function run(root, appName, version, verbose, originalDirectory) {
+  const installPackage =getInstallPackage(version);
+  const packageName = getPackageName(installPackage);
+
   const args = [
     'install',
     verbose && '--verbose',
-    '--save',
-    '--save-exacet',
-    getInstallPackage(version)
+    '--save-dev',
+    '--save-exact',
+    installPackage
   ].filter(function(e) { return e;});
   const proc = spawn('npm', args, {stdio: 'inherit'});
   proc.on('close', function(code) {
@@ -73,20 +91,22 @@ function run(root, appName, version, verbose) {
       return;
     }
 
+    checkNodeVersion(packageName);
+
     const scriptsPath = path.resolve(
       process.cwd(),
       'node_modules',
-      'react-scripts',
+      packageName,
       'scripts',
       'init.js'
     );
     const init = require(scriptsPath);
-    init(root, appName, verbose);
+    init(root, appName, verbose, originalDirectory);
   });
 }
 
 function getInstallPackage(version) {
-  const packageToInstall = 'create-react-app-scripts';
+  const packageToInstall = 'react-scripts';
   const validSemver = semver.valid(version);
   if(validSemver) {
     packageToInstall += '@' + validSemver;
@@ -97,11 +117,20 @@ function getInstallPackage(version) {
   return packageToInstall
 }
 
-function checkNodeVersion() {
+function getPackageName(installPackage) {
+  if(~installPackage.indexOf('.tgz')) {
+    return installPackage.match(/^.+\/(.+)-.+\.tgz$/)[1];
+  } else if(~installPackage.indexOf('@')) {
+    return installPackage.split('@')[0];
+  }
+  return installPackage;
+}
+
+function checkNodeVersion(packageName) {
   const packageJsonPath = path.resolve(
     process.cwd(),
     'node_modules',
-    'create-react-app-scripts',
+    packageName,
     'package.json'
   );
   const packageJson = require(packageJsonPath);
@@ -117,5 +146,48 @@ function checkNodeVersion() {
       process.version,
       packageJson.engines.node
     )
+  }
+}
+
+
+function checkAppName(appName) {
+  // TODO: there should be a single place that holds the dependencies
+  const dependencies = ['react', 'react-dom'];
+  const devDependencies = ['react-scripts'];
+  const allDependencies = dependencies.concat(devDependencies).sort();
+
+  if(allDependencies.indexOf(appName) > 0) {
+    console.error(
+      chalk.red(
+        'We cannot create a project called `' + appName + '` because a dependency with the same name exists.\n' +
+        'Due to the way npm works, the following names are not allowed:\n\n'
+      ) +
+      chalk.cyan(
+        allDependencies.map(function(depName) {
+          return '  ' + depName;
+        }).join('\n')
+      ) +
+      chalk.red('\n\nPlease choose a different project name.')
+    );
+    process.exit(1);
+  }
+}
+
+function isSafeToCreateProjectIn(root) {
+  const validFiles = [
+    '.DS_Store', 'Thumbs.db', '.git', '.gitignore', '.idea', 'README.md', 'LICENSE'
+  ];
+  return fs.readdirSync(root)
+    .every(function(file) {
+      return validFiles.indexOf(file) >= 0;
+    })
+}
+
+function pathExistsSync(fp) {
+  try {
+    fs.accessSync(fp);
+    return true;
+  } catch (err) {
+    return false;
   }
 }
