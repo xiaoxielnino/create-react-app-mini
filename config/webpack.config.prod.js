@@ -2,57 +2,64 @@ const path = require('path');
 const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const autoprefixer = require('autoprefixer');
-const extractTextPlugin = require('extract-text-webpack-plugin');
+const ExtractTextPlugin = require('extract-text-webpack-plugin');
+const url = require('url');
+const paths = require('./paths');
+const env = require('./env');
 
-const isInNodeModules = 'node_modules' ===
-  path.basename(path.resolve(path.join(__dirname, '..', '..')));
-let relativePath = isInNodeModules ? '../../..' : '..';
-if(process.argv[2]=== '--debug-template') {
-  relativePath = '../template';
+if(env['process.env.NODE_ENV'] !== 'production') {
+  throw new Error('Production builds must have NODE_ENV=production');
+};
+
+const homepagePath = require(paths.appPackageJson).homepage;
+const publicPath = homepagePath ? url.parse(homepagePath).pathname : '/';
+if(!publicPath.endsWith('/')) {
+  publicPath += '/';
 }
-const srcPath = path.resolve(__dirname, relativePath, 'src');
-const nodeModulesPath = path.join(__dirname, '..', 'node_modules');
-const indexHtmlPath = path.resolve(__dirname, relativePath, 'index.html');
-const faviconPath = path.resolve(__dirname, relativePath, 'favicon.ico');
-const buildPath = path.join(__dirname, isInNodeModules ? '../../..' : '..', 'build');
 
 module.exports = {
   bail: true,
   devtool: 'source-map',
-  entry: path.join(srcPath, 'index'),
+  entry: [
+    require.resolve('./polyfills'),
+    paths.appIndexJs
+  ],
   output: {
-    path: buildPath,
-    filename: '[name].[chunkhash].js',
-    chunkFilename: '[name].[chunkhash].chunk.js',
+    path: paths.appBuild,
+    filename: 'static/js/[name].[chunkhash:8].js',
+    chunkFilename: 'static/js/[name].[chunkhash].chunk.js',
     // TODO: this wouldn't work for e.g. GH Pages.
     // Good news: we can infer it from package.json :-)
-    publicPath: '/'
+    publicPath: publicPath
   },
   resolve: {
-    extensions: ['', '.js'],
+    fallback: paths.nodePaths,
+    extensions: ['.js', '.json', '.jsx', ''],
+    alias: {
+      'react-native': 'react-native-web'
+    }
   },
   resolveLoader: {
-    root: nodeModulesPath,
+    root: paths.ownNodeModules,
     moduleTemplates: ['*-loader']
   },
   module: {
     preLoaders: [
       {
-        test: /\.js$/,
+        test: /\.(js|jsx)$/,
         loader: 'eslint',
-        include: srcPath
+        include: paths.appSrc
       }
     ],
     loaders: [
       {
-        test: /\.js$/,
-        include: srcPath,
+        test: /\.(js|jsx)$/,
+        include: paths.appSrc,
         loader: 'babel',
         query: require('./babel.prod')
       },
       {
         test: /\.css$/,
-        include: srcPath,
         // Disable autoprefixer in css-loader itself:
         // https://github.com/webpack/css-loader/issues/281
         // We already have it thanks to postcss.
@@ -62,13 +69,43 @@ module.exports = {
         test: /\.json$/,
         loader: 'json'
       },
+      // "file" loader makes sure those assets end up in the `build` folder.
+      // When you `import` an asset, you get its filename.
       {
-        test: /\.(jpg|png|gif|eot|svg|ttf|woff|woff2)$/,
+        test: /\.(ico|jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2)(\?.*)?$/,
+        exclude: /\/favicon.ico$/,
         loader: 'file',
+        query: {
+          name: 'static/media/[name].[hash:8].[ext]'
+        }
       },
+      // A special case for favicon.ico to place it into build root directory.
       {
-        test: /\.(mp4|webm)$/,
-        loader: 'url?limit=10000'
+        test: /\/favicon.ico$/,
+        include: [paths.appSrc],
+        loader: 'file',
+        query: {
+          name: 'favicon.ico?[hash:8]'
+        }
+      },
+      // "url" loader works just like "file" loader but it also embeds
+      // assets smaller than specified size as data URLs to avoid requests.
+      {
+        test: /\.(mp4|webm|wav|mp3|m4a|aac|oga)(\?.*)?$/,
+        loader: 'url',
+        query: {
+          limit: 10000,
+          name: 'static/media/[name].[hash:8].[ext]'
+        }
+      },
+      // "html" loader is used to process template page (index.html) to resolve
+      // resources linked with <link href="./relative/path"> HTML tags.
+      {
+        test: /\.html$/,
+        loader: 'html',
+        query: {
+          attrs: ['link:href'],
+        }
       }
     ]
   },
@@ -79,13 +116,21 @@ module.exports = {
     useEslintrc: false
   },
   postcss: function() {
-    return [autoprefixer];
+    return [
+      autoprefixer({
+        browsers: [
+          '>1%',
+          'last 4 versions',
+          'Firefox ESR',
+          'not ie < 9', // React doesn't support IE8 anyway
+        ]
+      }),
+    ];
   },
   plugins: [
     new HtmlWebpackPlugin({
       inject: true,
-      template: indexHtmlPath,
-      favicon: faviconPath,
+      template: paths.appHtml,
       minify: {
         removeComments: true,
         collapseWhitespace: true,
@@ -99,7 +144,7 @@ module.exports = {
         minifyURLs: true
       }
     }),
-    new webpack.DefinePlugin({ 'process.env.NODE_ENV': '"production"' }),
+    new webpack.DefinePlugin(env),
     new webpack.optimize.OccurrenceOrderPlugin(),
     new webpack.optimize.DedupePlugin(),
     new webpack.optimize.UglifyJsPlugin({
@@ -115,6 +160,11 @@ module.exports = {
         screw_ie8: true
       }
     }),
-    new ExtractTextPlugin('[name].[contenthash].css')
-  ]
+    new ExtractTextPlugin('static/css/[name].[contenthash:8].css')
+  ],
+  node: {
+    fs: 'empty',
+    net: 'empty',
+    tls: 'empty'
+  }
 };

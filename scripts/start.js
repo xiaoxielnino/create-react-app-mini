@@ -161,7 +161,8 @@ function openBrowser(port, protocol) {
   opn(protocol + '://localhost:' + port + '/');
 }
 
-
+// We need to provide a custom onError function for httpProxyMiddleware.
+// It allows us to log custom error messages on the console.
 function onProxyError(proxy) {
   return function(err, req, res) {
     const host = req.headers && req.headers.host;
@@ -183,21 +184,88 @@ function onProxyError(proxy) {
 }
 
 function addMiddleware(devServer) {
+  const proxy = require(paths.appPackageJson).proxy;
+  devServer.use(historyApiFallback({
+    disableDotRule: true,
+    htmlAcceptHeaders: proxy ?
+    ['text/html'] :
+    ['text/html', '*/*']
+  }));
+  if(proxy) {
+    if(typeof proxy === 'string') {
+      console.log(chalk.red('When specified, "proxy" in package.json must be a string.'));
+      console.log(chalk.red('Instead, the type of "proxy" was "' + typeof proxy + '".'));
+      console.log(chalk.red('Either remove "proxy" from package.json, or make it a string.'));
+      process.exit(1);
+    }
 
+    var mayProxy = /^(?!\/(index\.html$|.*\.hot-update\.json$|sockjs-node\/)).*$/;
+    devServer.use(mayProxy,
+      // Pass the scope regex both to Express and to the middleware for proxying
+      // of both HTTP and WebSockets to work without false positives.
+      httpProxyMiddleware(pathname => mayProxy.test(pathname), {
+        target: proxy,
+        logLevel: 'silent',
+        onError: onProxyError(proxy),
+        secure: false,
+        changeOrigin: true
+      })
+    );
+  }
+  devServer.use(devServer.middleware);
 }
 
-new WebpackDevServer(compiler, {
-  historyApiFallback: true,
-  hot: true, // Note: only CSS is currently hot reloaded
-  publicPath: config.output.publicPath,
-  quiet: true
-}).listen(3000, 'localhost', function (err, result) {
-  if (err) {
-    return console.log(err);
-  }
+function runDevServer(port, protocol) {
+  const devServer = new WebpackDevServer(compiler, {
+    clientLogLevel: 'none',
+    contentBase: [],
+    hot: true,
+    publicPath: config.output.publicPath,
+    quiet: true,
+    watchOptions: {
+      ignored: /node_modules/
+    },
+    https: protocol === 'https' ? true : false
+  });
+
+  // our custom middleware proxies requests to /index.html or a remote API.
+  addMiddleware(devServer);
+
+  devServer.listen(port, (err, result) => {
+    if(err) {
+      return console.log(err);
+    }
+    clearConsole();
+    console.log(chalk.cyan('Starting the development server...'));
+    console.log();
+    openBrowser(port, protocol);
+  })
+}
+
+function run(port) {
+  const protocol = process.env.HTTPS === 'true' ? 'https' : 'http';
+  checkRequiredFiles();
+  setupCompiler(port, protocol);
+  runDevServer(port, protocol);
+}
+
+
+// We attempt to use the default port but if it is busy, we offer the user to
+// run on a different port. 'detect()' Promise resolves to the next free port.
+detect(DEFAULT_PORT).then(port => {
+  if(port === DEFAULT_PORT) {
+    run(port);
+    return;
+  };
 
   clearConsole();
-  console.log(chalk.cyan('Starting the development server...'));
-  console.log();
-  openBrowser();
-});
+  const question =
+    chalk.yellow('Something is already running on port ' + DEFAULT_PORT + '.') +
+    '\n\nWould you like to run the app on another port instead?';
+
+  prompt(question, true).then(shouldChangePort => {
+    if(shouldChangePort) {
+      run(port);
+    }
+  })
+})

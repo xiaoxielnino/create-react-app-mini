@@ -2,57 +2,49 @@ const path = require('path');
 const autoprefixer = require('autoprefixer');
 const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-
-const isInNodeModules = 'node_modules' ===
-  path.basename(path.resolve(path.join(__dirname, '..', '..')));
-let relativePath = isInNodeModules ? '../../..' : '..';
-const isInDebugMode = process.argv.some(arg =>
-  arg.indexOf('--debug-template') > -1
-);
-if(isInDebugMode) {
-  relativePath = '../template';
-}
-
-const srcPath = path.resolve(__dirname, relativePath, 'src');
-const nodeModulesPath = path.join(__dirname, '..', 'node_modules');
-const indexHtmlPath = path.resolve(__dirname, relativePath, 'index.html');
-const faviconPath = path.resolve(__dirname, relativePath, 'favicon.ico');
-const buildPath = path.join(__dirname, isInNodeModules ? '../../..' : '..', 'build');
-
+const CaseSensitivePathsPlugin = require('case-sensitive-paths-webpack-plugin');
+const WatchMissingNodeModulesPlugin = require('../scripts/utils/');
+const paths = require('./paths');
+const env = require('.env');;
 
 module.exports = {
   devtool: 'eval',
   entry: [
-    require.resolve('webpack-dev-server/client') + '?http://localhost:3000',
+    require.resolve('webpack-dev-server/client') + '?/',
     require.resolve('webpack/hot/dev-server'),
-    path.join(srcPath, 'index')
+    require.resolve('./polyfills'),
+    paths.appIndexJs
   ],
   output: {
     // Next line is not used in dev but WebpackDevServer crashes without it:
-    path: buildPath,
+    path: paths.appBuild,
     pathinfo: true,
-    filename: 'bundle.js',
+    filename: 'static/js/bundle.js',
     publicPath: '/'
   },
   resolve: {
-    extensions: ['', '.js'],
+    fallback: paths.nodePaths,
+    extensions: ['.js', '.json', '.jsx', ''],
+    alias: {
+      'react-native': 'react-native-web'
+    }
   },
   resolveLoader: {
-    root: nodeModulesPath,
+    root: paths.ownNodeModules,
     moduleTemplates: ['*-loader']
   },
   module: {
     preLoaders: [
       {
-        test: /\.js$/,
+        test: /\.(js|jsx)$/,
         loader: 'eslint',
-        include: srcPath,
+        include: paths.appSrc
       }
     ],
     loaders: [
       {
         test: /\.js$/,
-        include: srcPath,
+        include: paths.appSrc,
         loader: 'babel',
         query: require('./babel.dev')
       },
@@ -66,12 +58,35 @@ module.exports = {
         loader: 'json'
       },
       {
-        test: /\.(jpg|png|gif|eot|svg|ttf|woff|woff2)$/,
+        test: /\.(ico|jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2)(\?.*)?$/,
+        exclude: /\/favicon.ico$/,
         loader: 'file',
+        query: {
+          name: 'static/media/[name].[hash:8].[ext]'
+        }
       },
       {
-        test: /\.(mp4|webm)$/,
-        loader: 'url?limit=10000'
+        test: /\/favicon.ico$/,
+        include: [paths.appSrc],
+        loader: 'file',
+        query: {
+          name: 'favicon.ico?[hash:8]'
+        }
+      },
+      {
+        test: /\.(mp4|webm|wav|mp3|m4a|aac|oga)(\?.*)?$/,
+        loader: 'url',
+        query: {
+          limit: 10000,
+          name: 'static/media/[name].[hash:8].[ext]'
+        }
+      },
+      {
+        test: /\.html$/,
+        loader: 'html',
+        query: {
+          attrs: ['link:href'],
+        }
       }
     ]
   },
@@ -80,16 +95,31 @@ module.exports = {
     useEslintrc: false
   },
   postcss: function() {
-    return [autoprefixer];
+    return [
+      autoprefixer({
+        browsers: [
+          '>1%',
+          'last 4 versions',
+          'Firefox ESR',
+          'not ie < 9', // React doesn't support IE8 anyway
+        ]
+      }),
+    ];
   },
   plugins: [
     new HtmlWebpackPlugin({
       inject: true,
-      template: indexHtmlPath,
-      favicon: faviconPath,
+      template: paths.appHtml,
     }),
-    new webpack.DefinePlugin({ 'process.env.NODE_ENV': '"development"' }),
+    new webpack.DefinePlugin(env),
     // Note: only CSS is currently hot reloaded
-    new webpack.HotModuleReplacementPlugin()
-  ]
+    new webpack.HotModuleReplacementPlugin(),
+    new CaseSensitivePathsPlugin(),
+    new WatchMissingNodeModulesPlugin(paths.appNodeModules)
+  ],
+  node: {
+    fs: 'empty',
+    ent: 'empty',
+    tls: 'empty',
+  }
 };
